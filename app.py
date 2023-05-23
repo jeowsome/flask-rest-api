@@ -1,13 +1,13 @@
 import os
 import secrets
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_smorest import Api
 from flask_jwt_extended import JWTManager
 
 from db import db
-import models
 
+from blocklist import BLOCKLIST
 from resources.item import blp as ItemBlueprint
 from resources.store import blp as StoreBlueprint
 from resources.tag import blp as TagBlueprint
@@ -36,6 +36,40 @@ def create_app(db_url=None):
         "JWT_SECRET_KEY"
     ] = "jeom "  # 292701100330368486402555396447932960406  # secrets.SystemRandom().getrandbits(128)
     jwt = JWTManager(app)
+
+    @jwt.token_in_blocklist_loader
+    def classic_jwt_in_blocklist(jwt_header, jwt_payload):
+        return (
+            jwt_payload["jti"] in BLOCKLIST
+        )  # if true, returns an error indicating token is revoked
+
+    @jwt.revoked_token_loader
+    def revoked_token_callback(jwt_header, jwt_payload):
+        return (
+            jsonify({"message": "Token has been revoked", "error": "token_revoked"}),
+            401,
+        )
+
+    @jwt.additional_claims_loader
+    def add_claims_to_jwt(identity):
+        if identity == 1:
+            return {"admin": True}
+        return {"admin": False}
+
+    @jwt.expired_token_loader
+    def expired_token_callback(jwt_header, jwt_payload):
+        return (
+            jsonify({"message": "Token has expired", "error": "token_expired"}),
+            401,
+        )
+
+    @jwt.invalid_token_loader
+    def invalid_token_callback(error):
+        return (jsonify({"message": "Invalid token", "error": "invalid_token"}), 401)
+
+    @jwt.unauthorized_loader
+    def unauthorized_callback(error):
+        return (jsonify({"message": "Unauthorized", "error": "unauthorized"}), 401)
 
     with app.app_context():
         db.create_all()  # runs only if the table doesn't exists
